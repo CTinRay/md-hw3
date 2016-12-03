@@ -28,32 +28,37 @@ class Baseline:
         """ decompose rating into x^Ty """
         bu = np.zeros((r.shape[0], 1))
         bi = np.zeros((1, r.shape[1]))
-        avg = np.average(r)    
+        avg = np.average(r) / np.sum(np.where(r != 0))
         x = avg * np.random.random((self.dlatent, r.shape[0]))
         y = avg * np.random.random((self.dlatent, r.shape[1]))
+
+        rated = np.where(r != 0)
+        mask = np.zeros(r.shape)
+        mask[rated[0],rated[1]] = 1
         
         gradient = math.inf
         
         while gradient > self.converge ** 2:
-            e = r - np.dot(x.T, y) - bu - bi
-            dbu = - 2 * np.sum(e, axis=1).reshape(-1, 1) + 2 * self.reg * bu
-            dbi = - 2 * np.sum(e, axis=0).reshape(1, -1) + 2 * self.reg * bi
+            e = (r - np.dot(x.T, y) - bu - bi - avg) * mask
+            dbu = - np.sum(e, axis=1).reshape(-1, 1) + self.reg * bu
+            dbi = - np.sum(e, axis=0).reshape(1, -1) + self.reg * bi
             dx = self.reg * x
             for u in range(dx.shape[0]):
                 for i in range(y.shape[0]):
-                    dx[:,u] += (np.dot(x[:,u].T, y[:,i]) + bu[u][0] + bi[0][i] - r[u,i]) * y[:,i]
+                    dx[:,u] += (np.dot(x[:,u].T, y[:,i]) + bu[u][0] + bi[0][i] + avg - r[u,i]) * y[:,i] * mask[u,i]
 
             dy = self.reg * y
             for i in range(dy.shape[0]):
                 for u in range(x.shape[0]):
-                    dy[:,i] += (np.dot(x[:,u].T, y[:,i]) + bu[u][0] + bi[0][i] - r[u,i]) * x[:,u]
+                    dy[:,i] += (np.dot(x[:,u].T, y[:,i]) + bu[u][0] + bi[0][i] + avg - r[u,i]) * x[:,u] * mask[u,i]
 
-            bu -= dbu
-            bi -= dbi
+            bu -= dbu * self.rate
+            bi -= dbi * self.rate
             x -= dx * self.rate
             y -= dy * self.rate
             gradient = np.linalg.norm(x) + np.linalg.norm(y) + np.linalg.norm(dbu) + np.linalg.norm(dbi)
             if self.verbose:
+                print('gradient: dx =', dx, 'dy =', dy, 'dbu =', dbu, 'dbi =', dbi)
                 print('|gradient|^2 =', gradient)
             
         self.x = x
@@ -70,7 +75,7 @@ def main():
     parser.add_argument('d2', type=int, help='shape of train')
     parser.add_argument('--converge', type=float, help='converge, default = 0.001', default=0.001)
     parser.add_argument('--verbose', type=bool, help='verbose, default = False', default=False)    
-    parser.add_argument('--reg', type=float, help='lambda for the regulization term', default=0.001)
+    parser.add_argument('--reg', type=float, help='lambda for the regulization term', default=0.1)
     parser.add_argument('--dlatent', type=int, help='dimension of latent', default=100)
     parser.add_argument('--holdout', type=float, help='ratio of holdout data', default=0.1)
     parser.add_argument('--rate', type=float, help='learning rate', default=0.01)
