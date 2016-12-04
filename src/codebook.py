@@ -45,3 +45,11 @@ def onmtf(x, d1, d2, conv, verbose=False):
             print('d =', d)
 
     return f, s, g
+
+
+def construct_codebook(x, n_clusteru, n_clusteri, codebook_conv):
+    u, s, v = onmtf(x, n_clusteru, n_clusteri, codebook_conv)
+    u[np.where(u > 0)] = 1
+    v[np.where(v > 0)] = 1
+    return np.dot(u.T, np.dot(x, v)) / np.dot(u.T, np.dot(np.ones(s.shape), v))
+
