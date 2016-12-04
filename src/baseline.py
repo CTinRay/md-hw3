@@ -24,7 +24,7 @@ class Baseline:
         self.rate = rate
         self.reg = reg
         
-    def fit(self, r):
+    def fit(self, r, holdout_ans=None, holdout_xs=None, holdout_ys=None):
         """ decompose rating into x^Ty """
         bu = np.zeros((r.shape[0], 1))
         bi = np.zeros((1, r.shape[1]))
@@ -45,12 +45,12 @@ class Baseline:
             dx = self.reg * x
             for u in range(dx.shape[0]):
                 for i in range(y.shape[0]):
-                    dx[:,u] += (np.dot(x[:,u].T, y[:,i]) + bu[u][0] + bi[0][i] + avg - r[u,i]) * y[:,i] * mask[u,i]
+                    dx[:,u] += - e[u,i] * y[:,i] * mask[u,i]
 
             dy = self.reg * y
             for i in range(dy.shape[0]):
                 for u in range(x.shape[0]):
-                    dy[:,i] += (np.dot(x[:,u].T, y[:,i]) + bu[u][0] + bi[0][i] + avg - r[u,i]) * x[:,u] * mask[u,i]
+                    dy[:,i] += -e[u, i] * x[:,u] * mask[u,i]
 
             bu -= dbu * self.rate
             bi -= dbi * self.rate
@@ -58,13 +58,17 @@ class Baseline:
             y -= dy * self.rate
             gradient = np.linalg.norm(x) + np.linalg.norm(y) + np.linalg.norm(dbu) + np.linalg.norm(dbi)
             if self.verbose:
-                print('gradient: dx =', dx, 'dy =', dy, 'dbu =', dbu, 'dbi =', dbi)
+                print('sum(e^2) / sum(mask) =', np.sum(e**2) / np.sum(mask))
+                # print('gradient: dx =', dx, 'dy =', dy, 'dbu =', dbu, 'dbi =', dbi)
                 print('|gradient|^2 =', gradient)
-            
+                if holdout_ans is not None:
+                    holdout_res = (np.dot(x.T, y) + bu + bi + avg)[holdout_xs, holdout_ys]
+                    print('E out =', np.sum((holdout_res - holdout_ans)**2) / holdout_ans.shape[0])
+                
         self.x = x
         self.y = y
 
-    def predict():
+    def predict(self):
         return np.dot(self.x.T, self.y)
         
                 
@@ -92,10 +96,10 @@ def main():
     r[holdout_xs,holdout_ys] = 0
     
     baseline = Baseline(args.dlatent, args.reg, args.rate, args.converge, args.verbose)
-    baseline.fit(r)
+    baseline.fit(r, holdout_ans, holdout_xs, holdout_ys)
     res = baseline.predict()
     holdout_res = res[holdout_xs, holdout_ys]
-    accuracy = np.sum(np.where(holdout_res == holdout_ans)) / holdout_ans.shape[0]
+    accuracy = np.sum((holdout_res - holdout_ans)**2) / holdout_ans.shape[0]
     print('accuracy:', accuracy)
 
     
