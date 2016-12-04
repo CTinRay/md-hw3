@@ -53,3 +53,30 @@ def construct_codebook(x, n_clusteru, n_clusteri, codebook_conv):
     v[np.where(v > 0)] = 1
     return np.dot(u.T, np.dot(x, v)) / np.dot(u.T, np.dot(np.ones(s.shape), v))
 
+
+def transfer_codebook(x, b, n_iter):
+    """
+    args:
+        x: target rating matrix
+        b: codebook
+    """
+    u = np.zeros(x.shape[0], b.shape[0])
+    v = np.zeros(x.shape[1], b.shape[1])
+    v[np.arange(v.shape[0]), np.random.random_integers(0, v.shape[1], v.shape[0])] = 1
+
+    mask = np.zeros(x.shape)
+    mask[np.where(x > 0)] = 1
+
+    prev_v = np.array(v)
+    for t in range(n_iter):
+        u = np.zeros(u.shape)
+        for i in range(u.shape[0]):
+            j = np.argmin(np.linalg.norm((x[i,:] - np.dot(b, prev_v.T)) * mask[i,:], axis=1))
+            u[i,j] = 1
+            
+        v = np.zeros(v.shape)
+        for i in range(v.shape[0]):
+            j = np.argmin(np.linalg.norm((x[:,i] - np.dot(u, b)) * mask[:,i], axis=1))
+            v[i,j] = 1
+            
+    return x + (1 - mast) * np.norm(u, np.norm(b, v.T))
