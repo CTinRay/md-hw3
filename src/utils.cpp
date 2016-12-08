@@ -16,6 +16,7 @@ void loadMatrix(const std::string filename,
         assert(x < matrix.rows());
         assert(y < matrix.cols());
         matrix(x, y) = rate;
+        mask(x, y) = 1;
         f >> x >> y >> rate;   
     }
 }
