@@ -7,10 +7,10 @@ void nmtf(double rate, double conv,
                      const Eigen::MatrixXd mask,
                      Eigen::MatrixXd&f,
                      Eigen::MatrixXd&s,
-                     Eigen::MatrixXd&g){
+                     Eigen::MatrixXd&g) {
     double d = std::numeric_limits<double>::infinity();
     f.setRandom(x.rows(), d1);
-    g.setRandom(x.cols(), d1);
+    g.setRandom(x.cols(), d2);
     s.setRandom(x.rows(), x.cols());
     while (d > conv * conv) {
         d = 0;
