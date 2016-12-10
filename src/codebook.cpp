@@ -2,11 +2,13 @@
 #include "nmtf.hpp"
 #include <boost/program_options.hpp>
 #include <iostream>
+#include <random>
+
 
 struct Arguments {
-    std::string source, target;
+    std::string source, target, sourceModel, cu, ci;
     double nmtfConv, nmtfRate;
-    int nClustersU, nClustersI, rD1, rD2;
+    int nClustersU, nClustersI, rD1, rD2, nIters;
 };
 
 
@@ -17,11 +19,15 @@ Arguments getArgs(int argc, char**argv) {
 
         po::positional_options_description positional;
         positional.add("source", 1);
+        positional.add("cu", 1);
+        positional.add("ci", 1);
         positional.add("target", 1);
 
         po::options_description desc("===== Codebook =====");
         desc.add_options()
             ("source", po::value<std::string>(&args.source) -> required(), "source.txt")
+            ("cu", po::value<std::string>(&args.cu) -> default_value(""), "user cluster file cu.txt")
+            ("ci", po::value<std::string>(&args.ci) -> default_value(""), "item cluster file ci.txt")
             ("target", po::value<std::string>(&args.target) -> required(), "test.txt")
             ("help", "Print help message.")
             ("nmtfRate", po::value<double>(&args.nmtfRate) -> default_value(0.0001), "learning rate for nmtf")
@@ -29,7 +35,8 @@ Arguments getArgs(int argc, char**argv) {
             ("rD1", po::value<int>(&args.rD1) -> default_value(50000), "dimention of rating matrix")             
             ("rD2", po::value<int>(&args.rD2) -> default_value(5000), "dimention of rating matrix")             
             ("nClustersU", po::value<int>(&args.nClustersU) -> default_value(10), "number of user clusters")
-            ("nClustersI", po::value<int>(&args.nClustersI) -> default_value(10), "number of item clusters");
+            ("nClustersI", po::value<int>(&args.nClustersI) -> default_value(10), "number of item clusters")
+            ("nIters", po::value<int>(&args.nIters) -> default_value(10), "number of iteration when construction");
 
         po::variables_map vm;
         po::store(po::command_line_parser(argc, argv)
@@ -51,19 +58,96 @@ Arguments getArgs(int argc, char**argv) {
     return args;
 }
 
+
+void transferCodebook(int nIters,
+                      const Eigen::MatrixXd& x,
+                      const Eigen::MatrixXd& mask,
+                      const Eigen::MatrixXd& codebook,
+                      Eigen::MatrixXd& u,
+                      Eigen::MatrixXd& v) {
+    u = Eigen::MatrixXd::Zero(x.rows(), codebook.rows());
+    v = Eigen::MatrixXd::Zero(x.cols(), codebook.cols());
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, v.cols() - 1);
+
+    // randomly initialize v
+    for (auto i = 0u; i < v.rows(); ++i) {
+        auto j = dis(gen);
+        v(i, j) = 1;
+    }
+
+    for (int t = 0; t < nIters; ++t) {
+        Eigen::MatrixXd bvt = codebook * v.transpose();
+
+#pragma omp parallel for
+        for (int i = 0; i < x.rows(); ++i) {
+            int j, k;
+            Eigen::MatrixXd tmp = (-bvt).rowwise() + x.row(i);
+            tmp.array().rowwise() *= mask.row(i).array();
+            auto norms = tmp.colwise().squaredNorm();
+            norms.minCoeff(&j, &k);
+            u.row(i).setZero();
+            u(i, j) = 1;
+        }
+
+        Eigen::MatrixXd ub = u * codebook;
+
+#pragma omp parallel for
+        for (int i = 0; i < x.cols(); ++i) {
+            int k, j;
+            Eigen::MatrixXd tmp = (-ub).colwise() + x.col(i);
+            tmp.array().colwise() *= mask.col(i).array();
+            auto norms = tmp.colwise().squaredNorm();
+            norms.minCoeff(&k, &j);
+            v.row(i).setZero();
+            v(i, j) = 1;
+        }
+        std::cout << "iter " << t << std::endl;
+    }
+}
+    
 int main(int argc, char**argv){
     Arguments args = getArgs(argc, argv);
 
     Eigen::MatrixXd sourceRate(args.rD1, args.rD2);
     Eigen::MatrixXd sourceMask(args.rD1, args.rD2);
     loadMatrix(args.source, sourceRate, sourceMask);
+    Eigen::MatrixXd memU = Eigen::MatrixXd::Zero(args.rD1, args.nClustersU);
+    Eigen::MatrixXd memI = Eigen::MatrixXd::Zero(args.rD2, args.nClustersI);
+    loadMem(args.cu, memU);
+    loadMem(args.ci, memI);
+    
+    // constructing codebook
+    Eigen::MatrixXd codebook = (memU.transpose() * sourceRate * memI)
+        .cwiseQuotient(memU.transpose() * sourceMask * memI);
 
-    Eigen::MatrixXd s;
-    Eigen::MatrixXd f;
-    Eigen::MatrixXd g;
-    nmtf(args.nmtfRate, args.nmtfConv,
-         args.nClustersU, args.nClustersI,
-         sourceRate, sourceMask, f, s, g);
+    // transfer codebook
+    Eigen::MatrixXd targetRate(args.rD1, args.rD2);
+    Eigen::MatrixXd targetMask(args.rD1, args.rD2);
+    transferCodebook(args.nIters, targetRate, targetMask, codebook, memU, memI);
+
+    // fill in target matrix       
+    targetRate.array() += (1 - targetMask.array()) * (memU * codebook * memI).array();
     
     return 0;
 }
+
+
+
+// lagacy
+    // if (args.sourceModel != "") {
+    //     Eigen::MatrixXd sourceP, sourceQ;
+    //     loadModel(args.sourceModel, sourceP, sourceQ);
+    //     Eigen::MatrixXd sourceFilled = sourceP * sourceQ.transpose();
+    //     sourceRate.array() += ((1 - sourceMask.array()) * sourceFilled.array());
+    //     std::cerr << "finish loading model " << sourceRate.rows() << " " << sourceRate.cols() <<  std::endl;
+    // }
+    
+    // Eigen::MatrixXd s;
+    // Eigen::MatrixXd f;
+    // Eigen::MatrixXd g;
+    // nmtf(args.nmtfRate, args.nmtfConv,
+    //      args.nClustersU, args.nClustersI,
+    //      sourceRate, sourceMask, f, s, g);
