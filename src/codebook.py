@@ -18,7 +18,7 @@ def load_matrix(shape, filename):
     return matrix
 
 
-def onmtf(x, d1, d2, conv, verbose=False):
+def onmtf(p, q, x, d1, d2, conv, verbose=False):
     """ Orthogonal Nonnegative Matrix Tri-Factorization
     minimize || X - F S G^T ||
     """
@@ -29,24 +29,27 @@ def onmtf(x, d1, d2, conv, verbose=False):
     # print('# of rows with many 1 =', many1.shape[0])
     
     # initialize f
-    # kmeans_row = KMeans(n_clusters=d1, n_jobs=-1, max_iter=10)    
-    # kmeans_row.fit(x)
-    # mem_row = kmeans_row.predict(x)
-    f = np.random.random((x.shape[0], d1))
+    kmeans_row = KMeans(n_clusters=d1, n_jobs=-1, max_iter=100, verbose=1)    
+    kmeans_row.fit(p)
+    print("finish kmeans")
+    mem_row = kmeans_row.predict(p)
+    f = np.zeros((x.shape[0], d1))
+    # f = np.random.random((x.shape[0], d1))
     # mem_row = np.random.random_integers(0, f.shape[1] - 1, f.shape[0])
-    # f[np.arange(f.shape[0]),mem_row] = 1
-    # f = f + 0.2
+    f[np.arange(f.shape[0]),mem_row] = 1
+    f = f + 0.2
     if verbose:
         print('finish initialize f')
-    
+        
     # initialize g
-    # kmeans_col = KMeans(n_clusters=d2, n_jobs=-1, max_iter=10)
-    # kmeans_col.fit(x.T)
-    # mem_col = kmeans_col.predict(x.T)
-    g = np.random.random((x.shape[1], d2))
+    kmeans_col = KMeans(n_clusters=d2, n_jobs=-1, max_iter=100, verbose=1)
+    kmeans_col.fit(q)
+    mem_col = kmeans_col.predict(q)
+    g = np.zeros((x.shape[1], d2))
+    # g = np.random.random((x.shape[1], d2))
     # mem_col = np.random.random_integers(0, g.shape[1] - 1, g.shape[0])
-    # g[np.arange(g.shape[0]), mem_col] = 1
-    # g = g + 0.2
+    g[np.arange(g.shape[0]), mem_col] = 1
+    g = g + 0.2
     if verbose:
         print('finish initialize g')
 
@@ -55,25 +58,28 @@ def onmtf(x, d1, d2, conv, verbose=False):
 
     d = math.inf
 
-    print('g =', g[0])
-    print('f =', f[0])
-    print('s =', s[0])
+    print('g =', np.argmax(g, axis=1)[:100])
+    print('f =', np.argmax(f, axis=1)[:100])
+    # print('s =', s[0])
                 
     while d > conv ** 2:
         gprev = np.array(g)
         fprev = np.array(f)
         sprev = np.array(s)
 
+        print('loss =', np.linalg.norm(x - np.dot(np.dot(f, s), g.T)))
         g = g * np.sqrt(np.dot(np.dot(x.T, f), s) / np.dot(g, np.dot(np.dot(g.T, x.T), np.dot(f, s))))
         print('loss =', np.linalg.norm(x - np.dot(np.dot(f, s), g.T)))
         f = f * np.sqrt(np.dot(np.dot(x, g), s.T) / np.dot(np.dot(f, np.dot(f.T,x)),np.dot(g, s.T)))
         print('loss =', np.linalg.norm(x - np.dot(np.dot(f, s), g.T)))
         s = s * np.sqrt(np.dot(np.dot(f.T, x), g) / np.dot(np.dot(np.dot(f.T, f),s),np.dot(g.T, g)))
-        print('loss =', np.linalg.norm(x - np.dot(np.dot(f, s), g.T)))
 
-        print('g =', g[0])
-        print('f =', f[0])
-        print('s =', s[0])
+        
+        print('g =', np.argmax(g, axis=1)[:100])
+        print('f =', np.argmax(f, axis=1)[:100])
+        # print('g =', g[0])
+        # print('f =', f[0])
+        # print('s =', s[0])
         print('dg =', np.linalg.norm(gprev - g))        
         print('df =', np.linalg.norm(fprev - f))        
         print('ds =', np.linalg.norm(sprev - s))        
@@ -85,11 +91,12 @@ def onmtf(x, d1, d2, conv, verbose=False):
     return f, s, g
 
 
-def construct_codebook(x, n_clusteru, n_clusteri, codebook_conv):
+def construct_codebook(p, q, x, n_clusteru, n_clusteri, codebook_conv):
     average = np.sum(x) / np.sum(x > 0)
-    x_filled = np.array(x)
-    x_filled[np.where(x == 0)] = average
-    u, s, v = onmtf(x_filled, n_clusteru, n_clusteri, codebook_conv, verbose=True)
+    x += (1 - x > 0) * np.dot(p, q.T)
+    # x_filled = np.array(x)
+    # x_filled[np.where(x == 0)] = average
+    u, s, v = onmtf(p, q, x, n_clusteru, n_clusteri, codebook_conv, verbose=True)
     u[np.where(u > 0)] = 1
     v[np.where(v > 0)] = 1
     return np.dot(u.T, np.dot(x, v)) / np.dot(u.T, np.dot(np.ones(x.shape), v))
@@ -127,6 +134,28 @@ def transfer_codebook(x, b, n_iter):
     return x + (1 - mast) * np.norm(u, np.norm(b, v.T))
 
 
+def load_model(filename):
+    f = open(filename, 'r')
+    f.readline()
+    m = int(f.readline().split()[1])
+    n = int(f.readline().split()[1])
+    print('m', m, 'n', n)
+    k = int(f.readline().split()[1])
+    f.readline()
+
+    p = np.zeros((m, k))
+    q = np.zeros((n, k))
+    for i in range(m):
+        l = f.readline()
+        p[i] = list(map(float, l.split()[2:]))
+
+    for i in range(n):
+        l = f.readline()
+        q[i] = list(map(float, l.split()[2:]))
+    
+    return p, q
+
+
 def main():
     parser = argparse.ArgumentParser(description='===== BASELINE =====')
     parser.add_argument('source', type=str, help='source.txt')
@@ -138,11 +167,14 @@ def main():
     parser.add_argument('--verbose', type=bool, help='verbose, default = False', default=False)    
     parser.add_argument('--n_clusteru', type=int, help='number of user clusters', default=100)
     parser.add_argument('--n_clusteri', type=int, help='number of item clusters', default=50)
+    parser.add_argument('--source_model', type=str, help='source model', default=None)
     parser.add_argument('--holdout', type=float, help='ratio of holdout data', default=0.1)
     args = parser.parse_args()
 
     source = load_matrix((args.d1, args.d2), args.source)
     target = load_matrix((args.d1, args.d2), args.train)
+
+    source_p, source_q = load_model(args.source_model);
     
     rated = [[], []]    
     rated[0] = np.array(np.where(target > 0)[0])
@@ -154,7 +186,7 @@ def main():
     target[holdout_xs,holdout_ys] = 0
 
     
-    codebook = construct_codebook(source, args.n_clusteru, args.n_clusteri, args.conv)
+    codebook = construct_codebook(source_p, source_q, source, args.n_clusteru, args.n_clusteri, args.conv)
     res = transfer_codebook(target, codebook, args.n_iter)
     
     holdout_res = res[holdout_xs, holdout_ys]
