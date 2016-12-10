@@ -5,18 +5,19 @@
 #include <utility>
 
 void nmtf2(double rate, double conv,
-          int d1, int d2,
-          const Eigen::MatrixXd x,
-          const Eigen::MatrixXd mask,
-          Eigen::MatrixXd&f,
-          Eigen::MatrixXd&s,
-          Eigen::MatrixXd&g) {
+           int d1, int d2,
+           const Eigen::MatrixXd x,
+           const Eigen::MatrixXd mask,
+           Eigen::MatrixXd&f,
+           Eigen::MatrixXd&s,
+           Eigen::MatrixXd&g) {
     double d = std::numeric_limits<double>::infinity();
-    f.setRandom(x.rows(), d1);
+    f.setRandom(x.rows(), d1).array() /= 10000;
     f.array() += 1;
-    g.setRandom(x.cols(), d2);
+    g.setRandom(x.cols(), d2).array() /= 10000;
     g.array() += 1;
-    s.setRandom(d1, d2);
+    s.setRandom(d1, d2).array() /= 10000;
+    s.array() += 1;
 
     std::cout << "f:" << f.row(0) << std::endl;
     std::cout << "g:" << g.row(0) << std::endl;
@@ -29,7 +30,9 @@ void nmtf2(double rate, double conv,
             }
         }
     }
-    
+       
+    std::cout << "loss: " << (x - f * s * g.transpose()).cwiseProduct(mask).squaredNorm() / ones.size() << std::endl;
+
     std::cout << "NMTF..." << std::endl;
     while (d > conv * conv) {
         d = 0;
@@ -41,7 +44,13 @@ void nmtf2(double rate, double conv,
             auto dfi = - e * s * g.row(j).transpose();
             auto dgi = - e * f.row(i) * s;
             auto ds  = - e * f.row(i).transpose() * g.row(j);
-            d += dfi.norm() + dgi.norm() + ds.norm();
+            d += dfi.squaredNorm() + dgi.squaredNorm() + ds.squaredNorm();
+            if (std::isnan(d)) {
+                std::cout << "dfi:" << dfi << std::endl
+                          << "dgi:" << dgi << std::endl
+                          << "ds:"  << ds  << std::endl;
+            }
+            
             f.row(i).array() -= dfi.array() * rate;
             g.row(j).array() -= dgi.array() * rate;
             s -= ds * rate;        
@@ -51,7 +60,7 @@ void nmtf2(double rate, double conv,
             << "d:" << d << std::endl
             << "f:" << f.row(0) << std::endl
             << "g:" << g.row(0) << std::endl
-            << "loss: " << (x - f * s * g.transpose()).norm() << std::endl;
+            << "loss: " << (x - f * s * g.transpose()).cwiseProduct(mask).squaredNorm() / ones.size()  << std::endl;
         
     }
 }
