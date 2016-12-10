@@ -3,11 +3,15 @@
 #include <boost/program_options.hpp>
 #include <iostream>
 #include <random>
+#include <vector>
+#include <utility>
+#include <cmath>
 
+#define SQUARE(X) ((X) * (X))
 
 struct Arguments {
     std::string source, target, sourceModel, cu, ci;
-    double nmtfConv, nmtfRate;
+    double nmtfConv, nmtfRate, holdout;
     int nClustersU, nClustersI, rD1, rD2, nIters;
 };
 
@@ -19,6 +23,7 @@ Arguments getArgs(int argc, char**argv) {
 
         po::positional_options_description positional;
         positional.add("source", 1);
+        positional.add("sourceModel", 1);
         positional.add("cu", 1);
         positional.add("ci", 1);
         positional.add("target", 1);
@@ -26,11 +31,13 @@ Arguments getArgs(int argc, char**argv) {
         po::options_description desc("===== Codebook =====");
         desc.add_options()
             ("source", po::value<std::string>(&args.source) -> required(), "source.txt")
+            ("sourceModel", po::value<std::string>(&args.sourceModel) -> required(), "source-model.txt")
             ("cu", po::value<std::string>(&args.cu) -> default_value(""), "user cluster file cu.txt")
             ("ci", po::value<std::string>(&args.ci) -> default_value(""), "item cluster file ci.txt")
             ("target", po::value<std::string>(&args.target) -> required(), "test.txt")
             ("help", "Print help message.")
             ("nmtfRate", po::value<double>(&args.nmtfRate) -> default_value(0.0001), "learning rate for nmtf")
+            ("holdout", po::value<double>(&args.holdout) -> default_value(0.1), "learning rate for nmtf")
             ("converge", po::value<double>(&args.nmtfConv) -> default_value(10), "converge criteria for nmtf")
             ("rD1", po::value<int>(&args.rD1) -> default_value(50000), "dimention of rating matrix")             
             ("rD2", po::value<int>(&args.rD2) -> default_value(5000), "dimention of rating matrix")             
@@ -111,26 +118,66 @@ void transferCodebook(int nIters,
 int main(int argc, char**argv){
     Arguments args = getArgs(argc, argv);
 
-    Eigen::MatrixXd sourceRate(args.rD1, args.rD2);
-    Eigen::MatrixXd sourceMask(args.rD1, args.rD2);
+    Eigen::MatrixXd sourceRate = Eigen::MatrixXd::Zero(args.rD1, args.rD2);
+    Eigen::MatrixXd sourceMask = Eigen::MatrixXd::Zero(args.rD1, args.rD2);
     loadMatrix(args.source, sourceRate, sourceMask);
     Eigen::MatrixXd memU = Eigen::MatrixXd::Zero(args.rD1, args.nClustersU);
     Eigen::MatrixXd memI = Eigen::MatrixXd::Zero(args.rD2, args.nClustersI);
     loadMem(args.cu, memU);
     loadMem(args.ci, memI);
-    
+
+    Eigen::MatrixXd sourceP, sourceQ;
+    loadModel(args.sourceModel, sourceP, sourceQ);
+    Eigen::MatrixXd sourceFilled = sourceP * sourceQ.transpose();
+    sourceRate.array() += ((1 - sourceMask.array()) * sourceFilled.array());
+       
     // constructing codebook
     Eigen::MatrixXd codebook = (memU.transpose() * sourceRate * memI)
-        .cwiseQuotient(memU.transpose() * sourceMask * memI);
+        .cwiseQuotient(memU.transpose() * Eigen::MatrixXd::Ones(sourceRate.rows(), sourceRate.cols()) * memI);
+    std::cout << "finish construting codebook" << std::endl;
 
+    std::cout << codebook << std::endl;
+    
     // transfer codebook
-    Eigen::MatrixXd targetRate(args.rD1, args.rD2);
-    Eigen::MatrixXd targetMask(args.rD1, args.rD2);
+    Eigen::MatrixXd targetRate = Eigen::MatrixXd::Zero(args.rD1, args.rD2);
+    Eigen::MatrixXd targetMask = Eigen::MatrixXd::Zero(args.rD1, args.rD2);
+    loadMatrix(args.target, targetRate, targetMask);
+
+    // sample holdout data    
+    std::default_random_engine gen;
+    std::vector<std::pair<int, int>>holdoutInds;
+    std::vector<double>holdoutAnss;
+    std::bernoulli_distribution bern(args.holdout);
+    for (auto i = 0; i < targetRate.rows(); ++i) {
+        for (auto j = 0; j < targetRate.cols(); ++j) {
+            if (targetMask(i,j) == 1 && bern(gen)) {
+                holdoutInds.push_back(std::make_pair(i, j));
+                holdoutAnss.push_back(targetRate(i, j));                
+                targetRate(i, j) = 0;
+                targetMask(i, j) = 0;                    
+            }
+        }
+    }
+    std::cout << "finish sampling holdout data" << std::endl;
+
+    
     transferCodebook(args.nIters, targetRate, targetMask, codebook, memU, memI);
+    std::cout << "finish transfering codebook" << std::endl;
 
     // fill in target matrix       
-    targetRate.array() += (1 - targetMask.array()) * (memU * codebook * memI).array();
-    
+    targetRate.array() += (1 - targetMask.array()) * (memU * codebook * memI.transpose()).array();
+
+    double squareErr = 0;
+    for (auto i = 0u; i < holdoutInds.size(); ++i) {
+        int x = holdoutInds[i].first;
+        int y = holdoutInds[i].second;
+        std::cout << targetRate(x, y) << " " << holdoutAnss[i] << std::endl;
+        squareErr += SQUARE(targetRate(x, y) - holdoutAnss[i]);
+    }
+
+    std::cout << holdoutInds.size() << "holdout samples." << std::endl
+              << sqrt(squareErr / holdoutInds.size()) << std::endl;
+        
     return 0;
 }
 
