@@ -11,4 +11,7 @@ void loadModel(const std::string& filename,
 
 void loadMem(const std::string& filename, Eigen::MatrixXd& mem);   
 
+void loadFilled(const std::string& filename,
+                Eigen::MatrixXd&matrix, Eigen::MatrixXd&mask);
+
 #endif

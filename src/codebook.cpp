@@ -10,9 +10,9 @@
 #define SQUARE(X) ((X) * (X))
 
 struct Arguments {
-    std::string source, target, sourceModel, cu, ci;
+    std::string source, target, sourceModel, cu, ci, all;
     double nmtfConv, nmtfRate, holdout;
-    int nClustersU, nClustersI, rD1, rD2, nIters;
+    int nClustersU, nClustersI, rD1, rD2, nIters, sD1, sD2;
 };
 
 
@@ -23,7 +23,7 @@ Arguments getArgs(int argc, char**argv) {
 
         po::positional_options_description positional;
         positional.add("source", 1);
-        positional.add("sourceModel", 1);
+        positional.add("all", 1);
         positional.add("cu", 1);
         positional.add("ci", 1);
         positional.add("target", 1);
@@ -31,7 +31,7 @@ Arguments getArgs(int argc, char**argv) {
         po::options_description desc("===== Codebook =====");
         desc.add_options()
             ("source", po::value<std::string>(&args.source) -> required(), "source.txt")
-            ("sourceModel", po::value<std::string>(&args.sourceModel) -> required(), "source-model.txt")
+            ("all", po::value<std::string>(&args.all) -> required(), "all rating in source")
             ("cu", po::value<std::string>(&args.cu) -> default_value(""), "user cluster file cu.txt")
             ("ci", po::value<std::string>(&args.ci) -> default_value(""), "item cluster file ci.txt")
             ("target", po::value<std::string>(&args.target) -> required(), "test.txt")
@@ -39,6 +39,8 @@ Arguments getArgs(int argc, char**argv) {
             ("nmtfRate", po::value<double>(&args.nmtfRate) -> default_value(0.0001), "learning rate for nmtf")
             ("holdout", po::value<double>(&args.holdout) -> default_value(0.1), "learning rate for nmtf")
             ("converge", po::value<double>(&args.nmtfConv) -> default_value(10), "converge criteria for nmtf")
+            ("sD1", po::value<int>(&args.sD1) -> default_value(50000), "dimention of rating matrix")             
+            ("sD2", po::value<int>(&args.sD2) -> default_value(5000), "dimention of rating matrix")             
             ("rD1", po::value<int>(&args.rD1) -> default_value(50000), "dimention of rating matrix")             
             ("rD2", po::value<int>(&args.rD2) -> default_value(5000), "dimention of rating matrix")             
             ("nClustersU", po::value<int>(&args.nClustersU) -> default_value(10), "number of user clusters")
@@ -118,18 +120,19 @@ void transferCodebook(int nIters,
 int main(int argc, char**argv){
     Arguments args = getArgs(argc, argv);
 
-    Eigen::MatrixXd sourceRate = Eigen::MatrixXd::Zero(args.rD1, args.rD2);
-    Eigen::MatrixXd sourceMask = Eigen::MatrixXd::Zero(args.rD1, args.rD2);
+    Eigen::MatrixXd sourceRate = Eigen::MatrixXd::Zero(args.sD1, args.sD2);
+    Eigen::MatrixXd sourceMask = Eigen::MatrixXd::Zero(args.sD1, args.sD2);
     loadMatrix(args.source, sourceRate, sourceMask);
-    Eigen::MatrixXd memU = Eigen::MatrixXd::Zero(args.rD1, args.nClustersU);
-    Eigen::MatrixXd memI = Eigen::MatrixXd::Zero(args.rD2, args.nClustersI);
+    Eigen::MatrixXd memU = Eigen::MatrixXd::Zero(args.sD1, args.nClustersU);
+    Eigen::MatrixXd memI = Eigen::MatrixXd::Zero(args.sD2, args.nClustersI);
     loadMem(args.cu, memU);
     loadMem(args.ci, memI);
 
-    Eigen::MatrixXd sourceP, sourceQ;
-    loadModel(args.sourceModel, sourceP, sourceQ);
-    Eigen::MatrixXd sourceFilled = sourceP * sourceQ.transpose();
-    sourceRate.array() += ((1 - sourceMask.array()) * sourceFilled.array());
+    loadFilled(args.all, sourceRate, sourceMask);
+    // Eigen::MatrixXd sourceP, sourceQ;
+    // loadModel(args.sourceModel, sourceP, sourceQ);
+    // Eigen::MatrixXd sourceFilled = sourceP * sourceQ.transpose();
+    // sourceRate.array() += ((1 - sourceMask.array()) * sourceFilled.array());
        
     // constructing codebook
     Eigen::MatrixXd codebook = (memU.transpose() * sourceRate * memI)

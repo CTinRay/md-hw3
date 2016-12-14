@@ -69,3 +69,19 @@ void loadMem(const std::string& filename, Eigen::MatrixXd& mem) {
         mem(i, j) = 1;
     }
 }
+
+
+void loadFilled(const std::string& filename,
+            Eigen::MatrixXd&matrix, Eigen::MatrixXd&mask){
+    std::fstream f;
+    f.open(filename, std::ios::in);
+    for (auto i = 0u; i < matrix.rows(); ++i) {
+        for (auto j = 0u; j < matrix.cols(); ++j) {
+            double rate;
+            f >> rate;
+            if (mask(i, j) == 0) {
+                matrix(i, j) = rate;
+            }
+        }
+    }
+}
