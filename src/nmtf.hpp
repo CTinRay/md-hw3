@@ -4,10 +4,9 @@
 #define NMTF_HPP
 
 void nmtf(double rate, double conv,
-                     int d1, int d2,
-                     const Eigen::MatrixXd x,
-                     const Eigen::MatrixXd mask,
-                     Eigen::MatrixXd&f,
-                     Eigen::MatrixXd&s,
-                     Eigen::MatrixXd&g);
+          const Eigen::MatrixXd x,
+          const Eigen::MatrixXd mask,
+          Eigen::MatrixXd&f,
+          Eigen::MatrixXd&s,
+          Eigen::MatrixXd&g);
 #endif

@@ -128,12 +128,17 @@ int main(int argc, char**argv){
     loadMem(args.cu, memU);
     loadMem(args.ci, memI);
 
+    
     loadFilled(args.all, sourceRate, sourceMask);
     // Eigen::MatrixXd sourceP, sourceQ;
     // loadModel(args.sourceModel, sourceP, sourceQ);
     // Eigen::MatrixXd sourceFilled = sourceP * sourceQ.transpose();
     // sourceRate.array() += ((1 - sourceMask.array()) * sourceFilled.array());
-       
+
+    Eigen::MatrixXd s;
+    nmtf(args.nmtfRate, args.nmtfConv, sourceRate, sourceMask, memU, s, memI);
+
+    
     // constructing codebook
     Eigen::MatrixXd codebook = (memU.transpose() * sourceRate * memI)
         .cwiseQuotient(memU.transpose() * Eigen::MatrixXd::Ones(sourceRate.rows(), sourceRate.cols()) * memI);
