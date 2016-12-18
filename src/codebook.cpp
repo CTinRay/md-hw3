@@ -6,6 +6,7 @@
 #include <vector>
 #include <utility>
 #include <cmath>
+#include <fstream>
 
 #define SQUARE(X) ((X) * (X))
 
@@ -95,8 +96,9 @@ void transferCodebook(int nIters,
             int j, k;
             Eigen::MatrixXd tmp = (-bvt).rowwise() + x.row(i);
             tmp.array().rowwise() *= mask.row(i).array();
-            auto norms = tmp.colwise().squaredNorm();
+            auto norms = tmp.rowwise().squaredNorm();
             norms.minCoeff(&j, &k);
+            // std::cout << "j, k" << j << " " << k << std::endl;
             u.row(i).setZero();
             u(i, j) = 1;
         }
@@ -110,10 +112,14 @@ void transferCodebook(int nIters,
             tmp.array().colwise() *= mask.col(i).array();
             auto norms = tmp.colwise().squaredNorm();
             norms.minCoeff(&k, &j);
+            // std::cout << "k, j" << k << " " << j << std::endl;
             v.row(i).setZero();
             v(i, j) = 1;
         }
         std::cout << "iter " << t << std::endl;
+
+        auto lose = ((u * codebook * v.transpose()) - x).cwiseProduct(mask).squaredNorm();
+        std::cout << "lost " << std::sqrt(lose) / mask.sum() << std::endl;
     }
 }
     
@@ -136,8 +142,14 @@ int main(int argc, char**argv){
     // sourceRate.array() += ((1 - sourceMask.array()) * sourceFilled.array());
 
     Eigen::MatrixXd s;
-    nmtf(args.nmtfRate, args.nmtfConv, sourceRate, sourceMask, memU, s, memI);
+    auto origU = memU;
+    auto origI = memI;
+    // nmtf(args.nmtfRate, args.nmtfConv, sourceRate, sourceMask, memU, s, memI);
 
+    std::cout << "diff U:" << (memU - origU).squaredNorm() << std::endl
+              << "diff I:" << (memI - origI).squaredNorm() << std::endl;
+
+    // sourceRate.array() *= sourceMask.array();
     
     // constructing codebook
     Eigen::MatrixXd codebook = (memU.transpose() * sourceRate * memI)
@@ -185,7 +197,24 @@ int main(int argc, char**argv){
 
     std::cout << holdoutInds.size() << "holdout samples." << std::endl
               << sqrt(squareErr / holdoutInds.size()) << std::endl;
-        
+
+    std::fstream ftr;
+    ftr.open("train.txt", std::ios::out);
+    for (auto i = 0u; i < targetRate.rows(); ++i) {
+        for (auto j = 0; j < targetRate.cols(); ++j) {
+            if (targetRate(i, j) != 0) {
+                ftr << i << " " << j << " " <<  targetRate(i, j) << std::endl;
+            }
+        }
+    }
+    std::fstream ftest;
+    ftr.open("test.txt", std::ios::out);
+    for (auto i = 0u; i < holdoutInds.size(); ++i) {
+        int x = holdoutInds[i].first;
+        int y = holdoutInds[i].second;
+        ftest << x << " " << y << targetRate(x, y) << " " << holdoutAnss[i] << std::endl;
+        squareErr += SQUARE(targetRate(x, y) - holdoutAnss[i]);
+    }
     return 0;
 }
 
